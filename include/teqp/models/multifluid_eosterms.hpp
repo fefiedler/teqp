@@ -3,7 +3,7 @@
 #include "teqp/types.hpp"
 #include "teqp/exceptions.hpp"
 #include "teqp/models/cubics.hpp"
-#include "teqp/models/pcsaft.hpp"
+#include "teqp/models/saft/pcsaftpure.hpp"
 
 namespace teqp {
 
@@ -17,7 +17,8 @@ public:
     template<typename TauType, typename DeltaType>
     auto alphar(const TauType& tau, const DeltaType& delta) const {
         using result = std::common_type_t<TauType, DeltaType>;
-        result r = 0.0, lntau = log(tau);
+        result r = 0.0;
+        TauType lntau = log(tau);
         double base_delta = getbaseval(delta);
         if (base_delta == 0) {
             for (auto i = 0; i < n.size(); ++i) {
@@ -25,9 +26,9 @@ public:
             }
         }
         else {
-            result lndelta = log(delta);
+            DeltaType lndelta = log(delta);
             for (auto i = 0; i < n.size(); ++i) {
-                r = r + n[i] * exp(t[i] * lntau + d[i] * lndelta);
+                r += n[i] * exp(t[i] * lntau + d[i] * lndelta);
             }
         }
         return forceeval(r);
@@ -39,28 +40,38 @@ public:
 */
 class PowerEOSTerm {
 public:
-    Eigen::ArrayXd n, t, d, c, l;
-    Eigen::ArrayXi l_i;
+    struct PowerEOSTermCoeffs {
+        Eigen::ArrayXd n, t, d, c, l;
+        Eigen::ArrayXi l_i;
+    };
+    const PowerEOSTermCoeffs coeffs;
+    
+    PowerEOSTerm(const PowerEOSTermCoeffs& coef) : coeffs(coef){}
 
     template<typename TauType, typename DeltaType>
     auto alphar(const TauType& tau, const DeltaType& delta) const {
         using result = std::common_type_t<TauType, DeltaType>;
-        result r = 0.0, lntau = log(tau);
-        if (l_i.size() == 0 && n.size() > 0) {
+        result r = 0.0;
+        TauType lntau = log(tau);
+        if (coeffs.l_i.size() == 0 && coeffs.n.size() > 0) {
             throw std::invalid_argument("l_i cannot be zero length if some terms are provided");
         }
         if (getbaseval(delta) == 0) {
-            for (auto i = 0; i < n.size(); ++i) {
-                r = r + n[i] * exp(t[i] * lntau - c[i] * powi(delta, l_i[i])) * powi(delta, static_cast<int>(d[i]));
+            for (auto i = 0; i < coeffs.n.size(); ++i) {
+                r += coeffs.n[i] * exp(coeffs.t[i] * lntau - coeffs.c[i] * powi(delta, coeffs.l_i[i])) * powi(delta, static_cast<int>(coeffs.d[i]));
             }
         }
         else {
-            result lndelta = log(delta);
-            for (auto i = 0; i < n.size(); ++i) {
-                r = r + n[i] * exp(t[i] * lntau + d[i] * lndelta - c[i] * powi(delta, l_i[i]));
+            DeltaType lndelta = log(delta);
+            result arg;
+            DeltaType dpart;
+            for (auto i = 0; i < coeffs.n.size(); ++i) {
+                dpart = coeffs.d[i] * lndelta - coeffs.c[i] * powi(delta, coeffs.l_i[i]);
+                arg = (coeffs.t[i] * lntau) + dpart;
+                r += coeffs.n[i] * exp(arg);
             }
         }
-        return forceeval(r);
+        return r;
     }
 };
 
@@ -84,7 +95,7 @@ public:
         else {
             result lndelta = log(delta);
             for (auto i = 0; i < n.size(); ++i) {
-                r = r + n[i] * exp(t[i] * lntau + d[i] * lndelta - g[i] * powi(delta, l_i[i]));
+                r += n[i] * exp(t[i] * lntau + d[i] * lndelta - g[i] * powi(delta, l_i[i]));
             }
         }
         return forceeval(r);
@@ -139,9 +150,15 @@ public:
             }
         }
         else {
-            result lndelta = log(delta);
+            DeltaType lndelta = log(delta);
+            DeltaType d1, d2;
+            TauType t1, t2;
+            result arg;
             for (auto i = 0; i < n.size(); ++i) {
-                r = r + n[i] * exp(t[i] * lntau + d[i] * lndelta - eta[i] * square(delta - epsilon[i]) - beta[i] * square(tau - gamma[i]));
+                d1 = delta - epsilon[i]; d2 = d1*d1;
+                t1 = tau - gamma[i]; t2 = t1*t1;
+                arg = t[i] * lntau + d[i] * lndelta - eta[i]*d2 - beta[i]*t2;
+                r = r + n[i] * exp(arg);
             }
         }
         return forceeval(r);
@@ -273,7 +290,7 @@ public:
         
         for (int k = N; k >= 0; --k) {
             // Do the recurrent calculation
-            u_k = 2.0 * ind * u_kp1 - u_kp2 + c.row(k);
+            u_k = 2.0 * ind * u_kp1 - u_kp2 + c.row(k).template cast<XType>();
             if (k > 0) {
                 // Update the values
                 u_kp2 = u_kp1; u_kp1 = u_k;
@@ -297,7 +314,7 @@ public:
     auto alphar(const TauType& tau, const DeltaType& delta) const {
         TauType x = (2.0*tau - (taumax + taumin)) / (taumax - taumin);
         DeltaType y = (2.0*delta - (deltamax + deltamin)) / (deltamax - deltamin);
-        return forceeval(Clenshaw2DEigen(a, forceeval(x), forceeval(y)));
+        return forceeval(Clenshaw2DEigen(a, x, y));
     }
 };
 
@@ -388,7 +405,7 @@ public:
 class PCSAFTGrossSadowski2001Term {
 public:
     const double Tred_K, rhored_molm3;
-    const PCSAFT::PCSAFTPureGrossSadowski2001 pcsaft;
+    const saft::PCSAFT::PCSAFTPureGrossSadowski2001 pcsaft;
     
     PCSAFTGrossSadowski2001Term(const nlohmann::json& spec) :
         Tred_K(spec.at("Tred / K")),
@@ -422,8 +439,18 @@ public:
     auto alphar(const Tau& tau, const Delta& delta) const {
         std::common_type_t <Tau, Delta> ar = 0.0;
         for (const auto& term : coll) {
+//            // This approach is recommended to speed up visitor, but doesn't seem to make a difference in Xcode
+//            if (const auto t = std::get_if<JustPowerEOSTerm>(&term)){
+//                ar += t->alphar(tau, delta); continue;
+//            }
+//            if (const auto t = std::get_if<GaussianEOSTerm>(&term)){
+//                ar += t->alphar(tau, delta); continue;
+//            }
+//            if (const auto t = std::get_if<PowerEOSTerm>(&term)){
+//                ar += t->alphar(tau, delta); continue;
+//            }
             auto contrib = std::visit([&](auto& t) { return t.alphar(tau, delta); }, term);
-            ar = ar + contrib;
+            ar += contrib;
         }
         return ar;
     }

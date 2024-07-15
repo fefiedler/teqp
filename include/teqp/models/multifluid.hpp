@@ -62,9 +62,9 @@ public:
         resulttype alphar = 0.0;
         auto N = molefracs.size();
         for (auto i = 0U; i < N; ++i) {
-            alphar = alphar + molefracs[i] * EOSs[i].alphar(tau, delta);
+            alphar += molefracs[i] * EOSs[i].alphar(tau, delta);
         }
-        return forceeval(alphar);
+        return alphar;
     }
 
     template<typename TauType, typename DeltaType>
@@ -90,15 +90,15 @@ public:
 
     template<typename TauType, typename DeltaType, typename MoleFractions>
     auto alphar(const TauType& tau, const DeltaType& delta, const MoleFractions& molefracs) const {
-        using resulttype = std::common_type_t<decltype(tau), decltype(molefracs[0]), decltype(delta)>; // Type promotion, without the const-ness
+        using resulttype = std::decay_t<std::common_type_t<decltype(tau), decltype(molefracs[0]), decltype(delta)>>; // Type promotion, without the const-ness
         resulttype alphar = 0.0;
         std::size_t N = molefracs.size();
         for (auto i = 0U; i < N; ++i) {
             for (auto j = i+1; j < N; ++j) {
-                alphar = alphar + molefracs[i] * molefracs[j] * F(i, j) * funcs[i][j].alphar(tau, delta);
+                alphar += molefracs[i] * molefracs[j] * F(i, j) * funcs[i][j].alphar(tau, delta);
             }
         }
-        return forceeval(alphar);
+        return alphar;
     }
 
     /// Call a single departure term at i,j 
@@ -167,12 +167,13 @@ public:
         if (static_cast<std::size_t>(molefrac.size()) != corr.size()){
             throw teqp::InvalidArgument("Wrong size of mole fractions; "+std::to_string(corr.size()) + " are loaded but "+std::to_string(molefrac.size()) + " were provided");
         }
-        auto Tred = forceeval(redfunc.get_Tr(molefrac));
-        auto rhored = forceeval(redfunc.get_rhor(molefrac));
-        auto delta = forceeval(rho / rhored);
-        auto tau = forceeval(Tred / T);
-        auto val = corr.alphar(tau, delta, molefrac) + dep.alphar(tau, delta, molefrac);
-        return forceeval(val);
+        auto delta = forceeval(rho / redfunc.get_rhor(molefrac));
+        auto tau = forceeval(redfunc.get_Tr(molefrac) / T);
+        if (molefrac.size() == 1){
+            // Short circuit for pure fluids and avoid mole fractions and departure terms
+            return corr.alphari(tau, delta, 0);
+        }
+        return forceeval(corr.alphar(tau, delta, molefrac) + dep.alphar(tau, delta, molefrac));
     }
     
     template<typename TType, typename RhoType, typename MoleFracType>
@@ -183,8 +184,16 @@ public:
         if (static_cast<std::size_t>(molefrac.size()) != corr.size()){
             throw teqp::InvalidArgument("Wrong size of mole fractions; "+std::to_string(corr.size()) + " are loaded but "+std::to_string(molefrac.size()) + " were provided");
         }
-        auto val = corr.alphar(tau, delta, molefrac) + dep.alphar(tau, delta, molefrac);
-        return forceeval(val);
+        if (molefrac.size() == 1){
+            return corr.alphari(tau, delta, 0U);
+        }
+        return forceeval(corr.alphar(tau, delta, molefrac) + dep.alphar(tau, delta, molefrac));
+    }
+    
+    template<typename TType, typename RhoType>
+    inline auto alphar_taudeltai(const TType &tau, const RhoType &delta, const std::size_t i) const
+    {
+        return corr.alphari(tau, delta, i);
     }
 };
 
@@ -224,7 +233,7 @@ inline auto build_departure_function(const nlohmann::json& j) {
             return;
         }
 
-        PowerEOSTerm eos;
+        PowerEOSTerm::PowerEOSTermCoeffs eos;
 
         auto eigorzero = [&term, &N](const std::string& name) -> Eigen::ArrayXd {
             if (!term[name].empty()) {
@@ -311,14 +320,14 @@ inline auto build_departure_function(const nlohmann::json& j) {
             poly.d = eos.d.head(Nlzero);
             dep.add_term(poly);
 
-            PowerEOSTerm e;
+            PowerEOSTerm::PowerEOSTermCoeffs e;
             e.n = eos.n.tail(Nlnonzero);
             e.t = eos.t.tail(Nlnonzero);
             e.d = eos.d.tail(Nlnonzero);
             e.c = eos.c.tail(Nlnonzero);
             e.l = eos.l.tail(Nlnonzero);
             e.l_i = eos.l_i.tail(Nlnonzero);
-            dep.add_term(e);
+            dep.add_term(PowerEOSTerm(e));
         }
         else {
             // Don't try to get too clever, just add the departure term
@@ -377,7 +386,7 @@ inline auto build_departure_function(const nlohmann::json& j) {
         int Npower = term["Npower"];
         auto NGERG = static_cast<int>(term["n"].size()) - Npower;
 
-        PowerEOSTerm eos;
+        PowerEOSTerm::PowerEOSTermCoeffs eos;
         eos.n = toeig(term["n"]).head(Npower);
         eos.t = toeig(term["t"]).head(Npower);
         eos.d = toeig(term["d"]).head(Npower);
@@ -389,7 +398,7 @@ inline auto build_departure_function(const nlohmann::json& j) {
         }
         eos.c = (eos.l > 0).cast<int>().cast<double>();
         eos.l_i = eos.l.cast<int>();
-        dep.add_term(eos);
+        dep.add_term(PowerEOSTerm(eos));
 
         GERG2004EOSTerm e;
         e.n = toeig(term["n"]).tail(NGERG);
@@ -408,7 +417,7 @@ inline auto build_departure_function(const nlohmann::json& j) {
         int Npower = term["Npower"];
         auto NGauss = static_cast<int>(term["n"].size()) - Npower;
 
-        PowerEOSTerm eos;
+        PowerEOSTerm::PowerEOSTermCoeffs eos;
         eos.n = toeig(term["n"]).head(Npower);
         eos.t = toeig(term["t"]).head(Npower);
         eos.d = toeig(term["d"]).head(Npower);
@@ -420,7 +429,7 @@ inline auto build_departure_function(const nlohmann::json& j) {
         }
         eos.c = (eos.l > 0).cast<int>().cast<double>();
         eos.l_i = eos.l.cast<int>();
-        dep.add_term(eos);
+        dep.add_term(PowerEOSTerm(eos));
 
         GaussianEOSTerm e;
         e.n = toeig(term["n"]).tail(NGauss);
@@ -532,7 +541,7 @@ inline auto get_EOS_terms(const nlohmann::json& j)
     auto build_power = [&](auto term, auto & container) {
         std::size_t N = term["n"].size();
 
-        PowerEOSTerm eos;
+        PowerEOSTerm::PowerEOSTermCoeffs eos;
 
         auto eigorzero = [&term, &N](const std::string& name) -> Eigen::ArrayXd {
             if (!term[name].empty()) {
@@ -606,14 +615,14 @@ inline auto get_EOS_terms(const nlohmann::json& j)
             poly.d = eos.d.head(Nlzero);
             container.add_term(poly);
 
-            PowerEOSTerm e;
+            PowerEOSTerm::PowerEOSTermCoeffs e;
             e.n = eos.n.tail(Nlnonzero);
             e.t = eos.t.tail(Nlnonzero);
             e.d = eos.d.tail(Nlnonzero);
             e.c = eos.c.tail(Nlnonzero);
             e.l = eos.l.tail(Nlnonzero);
             e.l_i = eos.l_i.tail(Nlnonzero);
-            container.add_term(e);
+            container.add_term(PowerEOSTerm(e));
         }
         else {
             // Don't try to get too clever, just add the term

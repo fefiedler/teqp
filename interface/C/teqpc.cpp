@@ -15,18 +15,24 @@
 #define EXPORT_CODE
 #define CONVENTION
 
-#else
+# else
 
-#if defined(EXTERN_C_DLLEXPORT)
-#define EXPORT_CODE extern "C" __declspec(dllexport) 
+#if !defined(EXPORT_CODE)
+#  if defined(EXTERN_C_DLLEXPORT)
+#    define EXPORT_CODE extern "C" __declspec(dllexport)
+#  endif
+#  if defined(EXTERN_C)
+#    define EXPORT_CODE extern "C"
+#  endif
 #endif
-#if defined(EXTERN_C)
-#define EXPORT_CODE extern "C" 
-#endif
-#ifndef CONVENTION
+
+#if !defined(CONVENTION)
 #  define CONVENTION
 #endif
+
 #endif
+
+#include "teqpc.h"
 
 using namespace teqp;
 
@@ -195,7 +201,7 @@ EXPORT_CODE int CONVENTION get_AtaudeltaXiXjXk(const long long int uuid, const d
     return errcode;
 }
 
-EXPORT_CODE int CONVENTION get_virials(const long long int uuid, const int Nvir, const int NT, const double T, const double* molefrac, const int Ncomp, double* val, char* errmsg, int errmsg_length) {
+EXPORT_CODE int CONVENTION get_dmBnvirdTm(const long long int uuid, const int Nvir, const int NT, const double T, const double* molefrac, const int Ncomp, double* val, char* errmsg, int errmsg_length) {
     int errcode = 0;
     try {
         // Make an Eigen view of the double buffer

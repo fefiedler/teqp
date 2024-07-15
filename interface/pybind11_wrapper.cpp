@@ -198,7 +198,7 @@ void attach_model_specific_methods(py::object& obj){
     else if (index == canonical_cubic_i){
         setattr("get_a", MethodType(py::cpp_function([](py::object& o, double T, REArrayd& molefrac){ return get_typed<canonical_cubic_t>(o).get_a(T, molefrac); }, "self"_a, "T"_a, "molefrac"_a), obj));
         setattr("get_b", MethodType(py::cpp_function([](py::object& o, double T, REArrayd& molefrac){ return get_typed<canonical_cubic_t>(o).get_b(T, molefrac); }, "self"_a, "T"_a, "molefrac"_a), obj));
-        setattr("superanc_rhoLV", MethodType(py::cpp_function([](py::object& o, double T){ return get_typed<canonical_cubic_t>(o).superanc_rhoLV(T); }, "self"_a, "T"_a), obj));
+        setattr("superanc_rhoLV", MethodType(py::cpp_function([](py::object& o, double T, std::optional<std::size_t> ifluid){ return get_typed<canonical_cubic_t>(o).superanc_rhoLV(T, ifluid); }, "self"_a, "T"_a, py::arg_v("ifluid", std::nullopt, "None")), obj));
         setattr("get_kmat", MethodType(py::cpp_function([](py::object& o){ return get_typed<canonical_cubic_t>(o).get_kmat(); }), obj));
         setattr("get_meta", MethodType(py::cpp_function([](py::object& o){ return get_typed<canonical_cubic_t>(o).get_meta(); }), obj));
         setattr("set_meta", MethodType(py::cpp_function([](py::object& o, const std::string& s){ return get_mutable_typed<canonical_cubic_t>(o).set_meta(s); }, "self"_a, "s"_a), obj));
@@ -206,7 +206,7 @@ void attach_model_specific_methods(py::object& obj){
     else if (index == QuantumPR_i){
         setattr("get_ab", MethodType(py::cpp_function([](py::object& o, double T, REArrayd& molefrac){ return get_typed<QuantumPR_t>(o).get_ab(T, molefrac); }, "self"_a, "T"_a, "molefrac"_a), obj));
         setattr("get_c", MethodType(py::cpp_function([](py::object& o, double T, REArrayd& molefrac){ return get_typed<QuantumPR_t>(o).get_c(T, molefrac); }, "self"_a, "T"_a, "molefrac"_a), obj));
-        setattr("superanc_rhoLV", MethodType(py::cpp_function([](py::object& o, double T){ return get_typed<QuantumPR_t>(o).superanc_rhoLV(T); }, "self"_a, "T"_a), obj));
+        setattr("superanc_rhoLV", MethodType(py::cpp_function([](py::object& o, double T, std::optional<std::size_t> ifluid){ return get_typed<QuantumPR_t>(o).superanc_rhoLV(T, ifluid); }, "self"_a, "T"_a, py::arg_v("ifluid", std::nullopt, "None")), obj));
         setattr("get_kmat", MethodType(py::cpp_function([](py::object& o){ return get_typed<QuantumPR_t>(o).get_kmat(); }), obj));
         setattr("get_lmat", MethodType(py::cpp_function([](py::object& o){ return get_typed<QuantumPR_t>(o).get_lmat(); }), obj));
         setattr("get_Tc_K", MethodType(py::cpp_function([](py::object& o){ return get_typed<QuantumPR_t>(o).get_Tc_K(); }), obj));
@@ -545,8 +545,10 @@ void init_teqp(py::module& m) {
     
     using namespace teqp::iteration;
     py::class_<NRIterator>(m, "NRIterator")
-        .def(py::init<const AbstractModel *, const AbstractModel *, const std::vector<char>&, const Eigen::Ref<const Eigen::ArrayXd>&, double, double, const Eigen::Ref<const Eigen::ArrayXd>&>())
-        .def("take_step", &NRIterator::take_step)
+        .def(py::init<const AlphaModel&, const std::vector<char>&, const Eigen::ArrayXd&, double, double, const Eigen::Ref<const Eigen::ArrayXd>&, const std::tuple<bool, bool>&, const std::vector<std::shared_ptr<StoppingCondition>>>())
+        .def("calc_step", &NRIterator::calc_step)
+//        .def("take_step", &NRIterator::take_step)
+//        .def("take_step_getmaxabsr", &NRIterator::take_step_getmaxabsr)
         .def("take_steps", &NRIterator::take_steps)
         .def("get_vars", &NRIterator::get_vars)
         .def("get_vals", &NRIterator::get_vals)

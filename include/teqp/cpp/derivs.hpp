@@ -8,28 +8,26 @@ namespace cppinterface{
  */
 struct IterationMatrices{
     std::vector<char> vars; ///< The set of variables matching the rows in the Jacobian
-    Eigen::ArrayXXd J; ///< The Jacobian
-    Eigen::ArrayXd v; ///< The values of the thermodynamic variables matching the variables in vars
+    Eigen::Array22d J; ///< The Jacobian
+    Eigen::Array2d v; ///< The values of the thermodynamic variables matching the variables in vars
 };
 
 /**
  \brief A convenience function for calculation of Jacobian terms of the form \f$ J_{i0} = \frac{\partial y}{\partial T} \f$  and \f$ J_{i1} = \frac{\partial y}{\partial \rho} \f$ where \f$y\f$ is one of the thermodynamic variables in vars
  
  \param vars A set of chars, allowed are 'H','S','U','P','T','D'
- \param Ar The matrix of derivatives of \f$\alpha^{\rm r}\f$, perhaps obtained from teqp::DerivativeHolderSquare, or via get_deriv_mat2 of the AbstractModel
- \param Aig The matrix of derivatives of \f$\alpha^{\rm ig}\f$, perhaps obtained from teqp::DerivativeHolderSquare, or via get_deriv_mat2 of the AbstractModel
+ \param A The matrix of derivatives of \f$\alpha^{\rm ig} + \alpha^{\rm r}\f$, perhaps obtained from teqp::DerivativeHolderSquare, or via get_deriv_mat2 of the AbstractModel
  \param R The molar gas constant
  \param T Temperature
  \param rho Molar density
  \param z Mole fractions
  */
 template<typename Array>
-auto build_iteration_Jv(const std::vector<char>& vars, const Eigen::Array<double, 3, 3>& Ar, const Eigen::Array<double, 3, 3>& Aig, const double R, const double T, const double rho, const Array &z){
-    IterationMatrices im; im.J.resize(vars.size(), 2); im.v.resize(vars.size()); im.vars = vars;
+auto build_iteration_Jv(const std::vector<char>& vars, const Eigen::Array<double, 3, 3>& A, const double R, const double T, const double rho, const Array &z){
+    IterationMatrices im; im.vars = vars;
     
-    auto A = Ar + Aig;
-    Eigen::ArrayXd& v = im.v;
-    Eigen::ArrayXXd& J = im.J;
+    Eigen::Array2d& v = im.v;
+    Eigen::Array22d& J = im.J;
     auto Trecip = 1.0/T;
     auto dTrecipdT = -Trecip*Trecip;
     
@@ -49,6 +47,7 @@ auto build_iteration_Jv(const std::vector<char>& vars, const Eigen::Array<double
     auto d2alphadrho2 = [&](){ return A(0,2)/(rho*rho); };
     //
     // Derivatives of total Helmholtz energy a in terms of derivatives of alpha
+    auto a = [&](){ return alpha()*R*T; };
     auto dadTrecip = [&](){ return R/(Trecip*Trecip)*(Trecip*dalphadTrecip()-alpha());};
     auto d2adTrecip2 = [&](){ return R/(Trecip*Trecip*Trecip)*(Trecip*Trecip*d2alphadTrecip2()-2*Trecip*dalphadTrecip()+2*alpha());};
     auto dadrho = [&](){return R/Trecip*(dalphadrho());};
@@ -68,14 +67,24 @@ auto build_iteration_Jv(const std::vector<char>& vars, const Eigen::Array<double
                 J(i, 1) = 1.0;
                 break;
             case 'P':
-                v(i) = rho*R*T*(1 + Ar(0,1));
-                J(i, 0) = rho*R*(1 + Ar(0,1) - Ar(1,1));
-                J(i, 1) = R*T*(1 + 2*Ar(0,1) + Ar(0,2));
+                v(i) = rho*rho*dadrho();
+                J(i, 0) = rho*rho*d2adTrecipdrho()*dTrecipdT;
+                J(i, 1) = rho*rho*d2adrho2() + 2*rho*dadrho();
                 break;
             case 'S':
                 v(i) = Trecip*Trecip*dadTrecip();
                 J(i, 0) = (Trecip*Trecip*d2adTrecip2() + 2*Trecip*dadTrecip())*dTrecipdT;
                 J(i, 1) = Trecip*Trecip*d2adTrecipdrho();
+                break;
+            case 'H':
+                v(i) = a() + Trecip*dadTrecip() + rho*dadrho();
+                J(i, 0) = (Trecip*d2adTrecip2() + rho*d2adTrecipdrho() + 2*dadTrecip())*dTrecipdT;
+                J(i, 1) = Trecip*d2adTrecipdrho() + rho*d2adrho2() + 2*dadrho();
+                break;
+            case 'U':
+                v(i) = a() + Trecip*dadTrecip();
+                J(i, 0) = (Trecip*d2adTrecip2() + 2*dadTrecip())*dTrecipdT;
+                J(i, 1) = Trecip*d2adTrecipdrho() + dadrho();
                 break;
             default:
                 throw std::invalid_argument("bad var: " + std::to_string(vars[i]));
