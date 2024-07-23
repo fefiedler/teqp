@@ -9832,5 +9832,30 @@
     "betaV": 1.0, 
     "gammaT": 1.02114, 
     "gammaV": 1.0
-  }
+  },
+  {
+     "BibTeX": "Unpublished",
+     "CAS1": "108-87-2",
+     "CAS2": "7732-18-5",
+     "F": 0.0,
+     "Name1": "MethylCyclohexane",
+     "Name2": "Water",
+     "betaT": 0.97686,
+     "betaV": 0.9435,
+     "gammaT": 0.919421,
+     "gammaV": 1.041429
+  },
+  {
+     "BibTeX": "b912fce0/8d757b40",
+     "CAS1": "109-99-9",
+     "CAS2": "7732-18-5",
+     "F": 1.0,
+     "Fij": 1.0,
+     "Name1": "THF",
+     "Name2": "Water",
+     "betaT": 1.27686,
+     "betaV": 0.9435,
+     "gammaT": 0.919421,
+     "gammaV": 1.041429
+    }
 ]
