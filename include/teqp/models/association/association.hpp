@@ -141,14 +141,14 @@ private:
             throw teqp::InvalidArgument("self_association_mask is of the wrong size");
         }
         int Ngroups = static_cast<int>(ind.to_siteid.size());
-        Eigen::ArrayXXi D(Ngroups, Ngroups);
+        Eigen::ArrayXXi Dmat(Ngroups, Ngroups);
         // I and J are the numerical indices of the sites
         for (int I = 0; I < Ngroups; ++I){
             for (int J = 0; J < Ngroups; ++J){
-                D(I, J) = get_DIJ(I, J);
+                Dmat(I, J) = get_DIJ(I, J);
             }
         }
-        return D;
+        return Dmat;
     }
     static auto toEig(const nlohmann::json& j, const std::string& k) -> Eigen::ArrayXd{
         std::vector<double> vec = j.at(k);
@@ -374,11 +374,11 @@ public:
         using rDDXtype = std::decay_t<std::common_type_t<typename decltype(Delta)::Scalar, decltype(rhomolar), decltype(molefracs[0])>>; // Type promotion, without the const-ness
         Eigen::MatrixX<rDDXtype> rDDX = rhomolar*N_A*(Delta.array()*D.cast<resulttype>().array()).matrix();
         for (auto j = 0; j < rDDX.rows(); ++j){
-            rDDX.row(j).array() = rDDX.row(j).array()*xj.array();
+            rDDX.row(j).array() = rDDX.row(j).array()*xj.array().template cast<rDDXtype>();
         }
 //        rDDX.rowwise() *= xj;
         
-        Eigen::ArrayX<std::decay_t<rDDXtype>> X = X_init, Xnew;
+        Eigen::ArrayX<std::decay_t<rDDXtype>> X = X_init.template cast<rDDXtype>(), Xnew;
         
         for (auto counter = 0; counter < options.max_iters; ++counter){
             // calculate the new array of non-bonded site fractions X

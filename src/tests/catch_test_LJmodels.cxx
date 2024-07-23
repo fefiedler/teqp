@@ -120,6 +120,19 @@ TEST_CASE("Test virial coefficients", "[Mien6virial]")
     fix.test_virial(3, Tspec, rhotest, 1e-6);
 }
 
+TEST_CASE("Test s^+ ", "[Mien6]")
+{
+    // Also test virial coefficients
+    auto z = (Eigen::ArrayXd(1) << 1.0).finished();
+    auto model = make_model({ {"kind", "Mie_Pohl2023"}, {"model", {{"lambda_r", 12}}} });
+    double rho = 0.31;
+    auto rhovec = (Eigen::ArrayXd(1) << rho).finished();
+    auto splus = model->get_splus(1.32, rhovec);
+    auto splus_normal = model->get_Ar00(1.32, rho, z)-model->get_Ar10(1.32, rho, z);
+    CHECK_THAT(splus, WithinRel(splus_normal, 1e-8));
+}
+
+
 TEST_CASE("Test LJChain models", "[LJChain]"){
     auto Johnson = LJ126Johnson1993();
     auto m1 = LJChain::LJChain(std::move(Johnson), 1);
@@ -144,9 +157,10 @@ TEST_CASE("Check virial coefficients", "[LJ126]"){
         auto model = make_model({ {"kind", kind}, {"model", {}} });
         auto crit = model->solve_pure_critical(1.3, 0.3);
         CHECK_THAT(std::get<0>(expected), WithinRel(std::get<0>(crit), 1e-6) );
+        CAPTURE(kind);
         
         Eigen::ArrayXd z(1); z = 1.0;
-        double rhotest = 1e-6, Tspec = 1.3;
+        double rhotest = 1e-12, Tspec = 1.3;
         VirialTestFixture fix(model, z);
         fix.test_virial(2, Tspec, rhotest, 1e-6);
         fix.test_virial(3, Tspec, rhotest, 1e-6);
