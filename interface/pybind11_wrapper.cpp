@@ -16,6 +16,10 @@
 #include "teqp/models/fwd.hpp"
 #include "teqp/algorithms/ancillary_builder.hpp"
 #include "teqp/models/multifluid_ecs_mutant.hpp"
+#include "teqp/models/saft/genericsaft.hpp"
+
+#include "teqp/algorithms/pure_param_optimization.hpp"
+using namespace teqp::algorithms::pure_param_optimization;
 
 namespace py = pybind11;
 using namespace py::literals;
@@ -144,6 +148,7 @@ const std::type_index GERG2004ResidualModel_i{std::type_index(typeid(GERG2004::G
 const std::type_index GERG2008ResidualModel_i{std::type_index(typeid(GERG2008::GERG2008ResidualModel))};
 using CPA_t = decltype(teqp::CPA::CPAfactory(""));
 const std::type_index CPA_i{std::type_index(typeid(CPA_t))};
+const std::type_index genericSAFT_i{std::type_index(typeid(teqp::saft::genericsaft::GenericSAFT))};
 
 /**
  At runtime we can add additional model-specific methods that only apply for a particular model.  We take in a Python-wrapped
@@ -296,6 +301,15 @@ void attach_model_specific_methods(py::object& obj){
     }
     else if (index == CPA_i){
         setattr("get_assoc_calcs", MethodType(py::cpp_function([](py::object& o, double T, double rhomolar, REArrayd& molefrac){ return get_typed<CPA_t>(o).assoc.get_assoc_calcs(T, rhomolar, molefrac); }, "self"_a, "T"_a, "rhomolar"_a, "molefrac"_a), obj));
+    }
+    else if (index == genericSAFT_i){
+        setattr("get_assoc_calcs", MethodType(py::cpp_function([](py::object& o, double T, double rhomolar, REArrayd& molefrac){
+            const auto& assocoptvariant = get_typed<teqp::saft::genericsaft::GenericSAFT>(o).association;
+            if (!assocoptvariant){
+                throw teqp::InvalidArgument("No association term is available");
+            }
+            return std::visit([&](const auto& a){ return a.get_assoc_calcs(T, rhomolar, molefrac); }, assocoptvariant.value());
+        }, "self"_a, "T"_a, "rhomolar"_a, "molefrac"_a), obj));
     }
 };
 
@@ -555,6 +569,49 @@ void init_teqp(py::module& m) {
         .def("get_molefrac", &NRIterator::get_molefrac)
         .def("get_T", &NRIterator::get_T)
         .def("get_rho", &NRIterator::get_rho)
+        ;
+    
+    py::class_<SatRhoLPoint>(m, "SatRhoLPoint")
+        .def(py::init<>())
+        .def_readwrite("T", &SatRhoLPoint::T)
+        .def_readwrite("rhoL_exp", &SatRhoLPoint::rhoL_exp)
+        .def_readwrite("rhoL_guess", &SatRhoLPoint::rhoL_guess)
+        .def_readwrite("rhoV_guess", &SatRhoLPoint::rhoV_guess)
+        .def_readwrite("weight", &SatRhoLPoint::weight)
+    ;
+    py::class_<SatRhoLPPoint>(m, "SatRhoLPPoint")
+        .def(py::init<>())
+        .def_readwrite("T", &SatRhoLPPoint::T)
+        .def_readwrite("rhoL_exp", &SatRhoLPPoint::rhoL_exp)
+        .def_readwrite("p_exp", &SatRhoLPPoint::p_exp)
+        .def_readwrite("rhoL_guess", &SatRhoLPPoint::rhoL_guess)
+        .def_readwrite("rhoV_guess", &SatRhoLPPoint::rhoV_guess)
+        .def_readwrite("weight_rho", &SatRhoLPPoint::weight_rho)
+        .def_readwrite("weight_p", &SatRhoLPPoint::weight_p)
+        .def_readwrite("R", &SatRhoLPPoint::R)
+    ;
+    py::class_<SatRhoLPWPoint>(m, "SatRhoLPWPoint")
+        .def(py::init<>())
+        .def_readwrite("T", &SatRhoLPWPoint::T)
+        .def_readwrite("rhoL_exp", &SatRhoLPWPoint::rhoL_exp)
+        .def_readwrite("p_exp", &SatRhoLPWPoint::p_exp)
+        .def_readwrite("w_exp", &SatRhoLPWPoint::w_exp)
+        .def_readwrite("R", &SatRhoLPWPoint::R)
+        .def_readwrite("Ao20", &SatRhoLPWPoint::Ao20)
+        .def_readwrite("M", &SatRhoLPWPoint::M)
+        .def_readwrite("rhoL_guess", &SatRhoLPWPoint::rhoL_guess)
+        .def_readwrite("rhoV_guess", &SatRhoLPWPoint::rhoV_guess)
+        .def_readwrite("weight_rho", &SatRhoLPWPoint::weight_rho)
+        .def_readwrite("weight_p", &SatRhoLPWPoint::weight_p)
+        .def_readwrite("weight_w", &SatRhoLPWPoint::weight_w)
+    ;
+    
+    py::class_<PureParameterOptimizer>(m, "PureParameterOptimizer")
+        .def(py::init<const nlohmann::json&, const std::vector<std::variant<std::string, std::vector<std::string>>>&>())
+        .def("cost_function", &PureParameterOptimizer::cost_function<Eigen::ArrayXd>)
+        .def("cost_function_threaded", &PureParameterOptimizer::cost_function_threaded<Eigen::ArrayXd>)
+        .def("build_JSON", &PureParameterOptimizer::build_JSON<Eigen::ArrayXd>)
+        .def("add_one_contribution", &PureParameterOptimizer::add_one_contribution)
         ;
     
 //    // Some functions for timing overhead of interface

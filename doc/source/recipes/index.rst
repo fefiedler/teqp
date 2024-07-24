@@ -1,5 +1,5 @@
-Examples
-========
+Recipes
+=======
 
 The examples here demonstrate various capabilities of teqp to solve practical problems in a "show your work" fashion
 
@@ -8,4 +8,5 @@ The examples here demonstrate various capabilities of teqp to solve practical pr
    :caption: Contents:
 
    HeatPumpModel
-   
+   IdealCurves
+   FitPureParameters
