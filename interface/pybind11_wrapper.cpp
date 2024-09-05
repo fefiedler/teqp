@@ -16,7 +16,10 @@
 #include "teqp/models/fwd.hpp"
 #include "teqp/algorithms/ancillary_builder.hpp"
 #include "teqp/models/multifluid_ecs_mutant.hpp"
+#include "teqp/models/multifluid_association.hpp"
+#include "teqp/models/multifluid/multifluid_activity.hpp"
 #include "teqp/models/saft/genericsaft.hpp"
+#include "teqp/algorithms/phase_equil.hpp"
 
 #include "teqp/algorithms/pure_param_optimization.hpp"
 using namespace teqp::algorithms::pure_param_optimization;
@@ -149,6 +152,8 @@ const std::type_index GERG2008ResidualModel_i{std::type_index(typeid(GERG2008::G
 using CPA_t = decltype(teqp::CPA::CPAfactory(""));
 const std::type_index CPA_i{std::type_index(typeid(CPA_t))};
 const std::type_index genericSAFT_i{std::type_index(typeid(teqp::saft::genericsaft::GenericSAFT))};
+const std::type_index MultiFluidAssociation_i{std::type_index(typeid(MultifluidPlusAssociation))};
+const std::type_index MultiFluidActivity_i{std::type_index(typeid(teqp::multifluid::multifluid_activity::MultifluidPlusActivity))};
 
 /**
  At runtime we can add additional model-specific methods that only apply for a particular model.  We take in a Python-wrapped
@@ -310,6 +315,22 @@ void attach_model_specific_methods(py::object& obj){
             }
             return std::visit([&](const auto& a){ return a.get_assoc_calcs(T, rhomolar, molefrac); }, assocoptvariant.value());
         }, "self"_a, "T"_a, "rhomolar"_a, "molefrac"_a), obj));
+    }
+    else if (index == MultiFluidAssociation_i){
+        setattr("get_assoc_calcs", MethodType(py::cpp_function([](py::object& o, double T, double rhomolar, REArrayd& molefrac){
+            return get_typed<MultifluidPlusAssociation>(o).get_association().get_assoc_calcs(T, rhomolar, molefrac);
+        }, "self"_a, "T"_a, "rhomolar"_a, "molefrac"_a), obj));
+    }
+    else if (index == MultiFluidActivity_i){
+        setattr("calc_gER_over_RT", MethodType(py::cpp_function([](py::object& o, double T, REArrayd& molefrac){
+            return get_typed<teqp::multifluid::multifluid_activity::MultifluidPlusActivity>(o).calc_gER_over_RT(T, molefrac);
+        }, "self"_a, "T"_a, "molefrac"_a), obj));
+        setattr("calc_lngamma_resid", MethodType(py::cpp_function([](py::object& o, double T, EArrayd& molefrac){
+            return get_typed<teqp::multifluid::multifluid_activity::MultifluidPlusActivity>(o).calc_lngamma_resid(T, molefrac);
+        }, "self"_a, "T"_a, "molefrac"_a), obj));
+        setattr("calc_lngamma_comb", MethodType(py::cpp_function([](py::object& o, double T, EArrayd& molefrac) -> EArrayd{
+            return get_typed<teqp::multifluid::multifluid_activity::MultifluidPlusActivity>(o).calc_lngamma_comb(T, molefrac);
+        }, "self"_a, "T"_a, "molefrac"_a), obj));
     }
 };
 
@@ -557,6 +578,43 @@ void init_teqp(py::module& m) {
           "component"_a, "name"_a);
     m.def("convert_HMXBNC", [](const std::string& path){ return RPinterop::HMXBNCfile(path).make_jsons(); }, "path"_a);
     
+    {
+    using namespace teqp::algorithms::phase_equil;
+    auto m_phaseequil = m.def_submodule("phaseequil", "Routines for phase equilibrium");
+    
+    // Specification options
+    py::class_<AbstractSpecification, std::shared_ptr<AbstractSpecification>>(m_phaseequil, "AbstractSpecification");
+    py::class_<TSpecification, AbstractSpecification, std::shared_ptr<TSpecification>>(m_phaseequil, "TSpecification").def(py::init<double>());
+    py::class_<PSpecification, AbstractSpecification, std::shared_ptr<PSpecification>>(m_phaseequil, "PSpecification").def(py::init<double>());
+    py::class_<BetaSpecification, AbstractSpecification, std::shared_ptr<BetaSpecification>>(m_phaseequil, "BetaSpecification").def(py::init<double, std::size_t>());
+    py::class_<MolarVolumeSpecification, AbstractSpecification, std::shared_ptr<MolarVolumeSpecification>>(m_phaseequil, "MolarVolumeSpecification").def(py::init<double>());
+    py::class_<MolarEntropySpecification, AbstractSpecification, std::shared_ptr<MolarEntropySpecification>>(m_phaseequil, "MolarEntropySpecification").def(py::init<double>());
+    py::class_<MolarEnthalpySpecification, AbstractSpecification, std::shared_ptr<MolarEnthalpySpecification>>(m_phaseequil, "MolarEnthalpySpecification").def(py::init<double>());
+    py::class_<MolarInternalEnergySpecification, AbstractSpecification, std::shared_ptr<MolarInternalEnergySpecification>>(m_phaseequil, "MolarInternalEnergySpecification").def(py::init<double>());
+        
+    using CallResult = GeneralizedPhaseEquilibrium::CallResult;
+    py::class_<CallResult>(m_phaseequil, "CallResult")
+        .def_readonly("r", &CallResult::r, "r")
+        .def_readonly("J", &CallResult::J, "J")
+        ;
+    
+    using UnpackedVariables = GeneralizedPhaseEquilibrium::UnpackedVariables;
+    py::class_<UnpackedVariables>(m_phaseequil, "UnpackedVariables")
+        .def(py::init<const double, const std::vector<Eigen::ArrayXd>&, const Eigen::ArrayXd&>())
+        .def_readonly("T", &UnpackedVariables::T, "Temperature")
+        .def_readonly("rhovecs", &UnpackedVariables::rhovecs, "Vectors of molar concentrations for each phase")
+        .def_readonly("betas", &UnpackedVariables::betas, "Vector of molar phase fractions for each phase")
+        .def("pack", &UnpackedVariables::pack, "Convenience function to generate the array of independent variables")
+    ;
+    
+    py::class_<GeneralizedPhaseEquilibrium>(m_phaseequil, "GeneralizedPhaseEquilibrium")
+        .def(py::init<const AbstractModel&, const Eigen::ArrayXd&, const UnpackedVariables&, const std::vector<std::shared_ptr<AbstractSpecification>>&>())
+        .def("call", &GeneralizedPhaseEquilibrium::call, "Call the function to build the residuals and Jacobian matrix", "x"_a)
+        .def("num_Jacobian", &GeneralizedPhaseEquilibrium::num_Jacobian, "A testing function to build the Jacobian with centered differences")
+        .def_readonly("res", &GeneralizedPhaseEquilibrium::res, "The data structure containing r and J")
+    ;
+    }
+    
     using namespace teqp::iteration;
     py::class_<NRIterator>(m, "NRIterator")
         .def(py::init<const AlphaModel&, const std::vector<char>&, const Eigen::ArrayXd&, double, double, const Eigen::Ref<const Eigen::ArrayXd>&, const std::tuple<bool, bool>&, const std::vector<std::shared_ptr<StoppingCondition>>>())
@@ -605,9 +663,17 @@ void init_teqp(py::module& m) {
         .def_readwrite("weight_p", &SatRhoLPWPoint::weight_p)
         .def_readwrite("weight_w", &SatRhoLPWPoint::weight_w)
     ;
+    py::class_<SOSPoint>(m, "SOSPoint")
+        .def(py::init<>())
+        .def_readwrite("weight_w", &SOSPoint::weight_w)
+#define X(field) .def_readwrite(stringify(field), &SOSPoint::field)
+SOSPoint_fields
+#undef X
+    ;
     
     py::class_<PureParameterOptimizer>(m, "PureParameterOptimizer")
         .def(py::init<const nlohmann::json&, const std::vector<std::variant<std::string, std::vector<std::string>>>&>())
+        .def_readonly("contributions", &PureParameterOptimizer::contributions, py::return_value_policy::copy)
         .def("cost_function", &PureParameterOptimizer::cost_function<Eigen::ArrayXd>)
         .def("cost_function_threaded", &PureParameterOptimizer::cost_function_threaded<Eigen::ArrayXd>)
         .def("build_JSON", &PureParameterOptimizer::build_JSON<Eigen::ArrayXd>)
